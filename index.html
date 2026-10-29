@@ -1,0 +1,1707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vocabulary Tri-Arena: Win or Lose • Word Magnet • Crossword</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Paho MQTT WebSocket Client -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fredoka+One&family=Plus+Jakarta+Sans:wght@500;600;700;800;900&family=Chakra+Petch:wght@700;800&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+      background: radial-gradient(ellipse at top, #0f172a 0%, #090d16 55%, #020408 100%);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    .font-arcade { font-family: 'Bungee', cursive; }
+    .font-game { font-family: 'Fredoka One', cursive; }
+    .font-hud { font-family: 'Chakra Petch', sans-serif; }
+
+    .glow-gold { box-shadow: 0 0 25px rgba(245, 158, 11, 0.45), inset 0 0 12px rgba(251, 191, 36, 0.2); }
+    .glow-cyan { box-shadow: 0 0 25px rgba(6, 182, 212, 0.45), inset 0 0 12px rgba(34, 211, 238, 0.2); }
+    .glow-emerald { box-shadow: 0 0 25px rgba(16, 185, 129, 0.45), inset 0 0 12px rgba(52, 211, 153, 0.2); }
+
+    .arena-btn {
+      transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+      box-shadow: 0 5px 0 rgba(0, 0, 0, 0.5), 0 8px 12px -2px rgba(0, 0, 0, 0.4);
+    }
+    .arena-btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 7px 0 rgba(0, 0, 0, 0.5), 0 12px 18px -2px rgba(0, 0, 0, 0.5);
+    }
+    .arena-btn:active:not(:disabled) {
+      transform: translateY(3px);
+      box-shadow: 0 2px 0 rgba(0, 0, 0, 0.5), 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+    }
+
+    @keyframes bounceWin {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.04); }
+    }
+    .btn-win {
+      background: linear-gradient(135deg, #15803d 0%, #16a34a 100%) !important;
+      border-color: #86efac !important;
+      color: #ffffff !important;
+      animation: bounceWin 0.35s ease-in-out infinite alternate;
+    }
+    @keyframes shakeLose {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-8px); }
+      40%, 80% { transform: translateX(8px); }
+    }
+    .btn-lose {
+      background: linear-gradient(135deg, #991b1b 0%, #dc2626 100%) !important;
+      border-color: #fca5a5 !important;
+      color: #ffffff !important;
+      animation: shakeLose 0.35s ease-in-out;
+    }
+
+    .magnet-tile {
+      cursor: grab;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+      box-shadow: 0 4px 0 rgba(0, 0, 0, 0.4);
+    }
+    .magnet-tile:hover { transform: translateY(-2px); box-shadow: 0 6px 0 rgba(0, 0, 0, 0.4); }
+    .magnet-tile:active { cursor: grabbing; transform: scale(0.96); }
+    .magnet-slot { min-height: 48px; transition: background 0.2s ease, border-color 0.2s ease; }
+
+    .crossword-cell {
+      position: relative;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 14px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      transition: background 0.15s ease;
+    }
+    @media (min-width: 640px) {
+      .crossword-cell { width: 36px; height: 36px; font-size: 16px; }
+    }
+    .crossword-cell.black { background: #020617; border-color: #0f172a; }
+    .crossword-cell.active { border: 2px solid #facc15; background: #422006; color: #fde047; }
+    .crossword-cell.solved { background: #064e3b; color: #6ee7b7; border-color: #10b981; }
+    .crossword-num {
+      position: absolute;
+      top: 1px;
+      left: 2px;
+      font-size: 8px;
+      line-height: 1;
+      font-weight: 800;
+      color: #94a3b8;
+      pointer-events: none;
+    }
+
+    @keyframes bulbPulse {
+      0%, 100% { opacity: 0.4; filter: drop-shadow(0 0 2px #facc15); }
+      50% { opacity: 1; filter: drop-shadow(0 0 9px #fde047); }
+    }
+    .bulb { animation: bulbPulse 1.3s infinite ease-in-out; }
+    .bulb:nth-child(even) { animation-delay: 0.65s; }
+
+    @media print {
+      body { background: #ffffff !important; color: #000000 !important; }
+      header, main, #start-modal, #phase-modal, #teacher-spectator-modal { display: none !important; }
+      #final-modal { position: static !important; display: block !important; background: transparent !important; box-shadow: none !important; }
+      button { display: none !important; }
+    }
+  </style>
+</head>
+<body class="text-slate-100 flex flex-col justify-between p-2.5 sm:p-4 select-none">
+
+  <!-- Top Studio Header -->
+  <header class="max-w-5xl w-full mx-auto bg-slate-900/95 backdrop-blur-md border-2 border-amber-400/50 rounded-3xl p-3 sm:p-4 shadow-2xl mb-3 glow-gold relative z-20">
+    <div class="flex flex-wrap items-center justify-between border-b border-slate-800 pb-2 mb-2 text-xs">
+      <div class="flex items-center gap-2">
+        <span class="w-2.5 h-2.5 rounded-full bg-amber-400 bulb"></span>
+        <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 bulb"></span>
+        <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 bulb"></span>
+        <span class="font-arcade tracking-widest text-amber-300 ml-1">ACADEMIC VOCABULARY ARENA</span>
+        <span class="text-slate-500 hidden sm:inline">|</span>
+        <span class="text-amber-400 font-bold hidden sm:inline">Academic Designer: Muhammad Shahzad</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <!-- Live Teacher Spectator Board Toggle -->
+        <button onclick="openTeacherSpectator()" class="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/50 rounded-xl text-xs font-bold font-hud transition flex items-center gap-1.5">
+          <span>🖥️ Teacher Spectator Board</span>
+          <span id="badge-live-subs" class="px-1.5 py-0.2 bg-amber-400 text-slate-950 rounded-full text-[10px] font-black">0</span>
+        </button>
+        <button onclick="toggleAudio()" id="btn-audio" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-bold border border-slate-700 transition">
+          <span id="audio-lbl">🔊 Sound ON</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Active Candidate Profile & Live HUD -->
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-3xl shadow-lg border-2 border-amber-200">
+          🎯
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base sm:text-xl font-black font-arcade text-amber-300 tracking-wider">
+              TRI-ARENA GAME
+            </h1>
+            <span id="hud-phase-pill" class="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-400/50 rounded-full text-[11px] font-bold uppercase tracking-wider font-hud">
+              PHASE 1: WIN OR LOSE
+            </span>
+          </div>
+          <p class="text-xs text-slate-300 mt-0.5">
+            Student: <strong id="hud-name" class="text-amber-400 font-game text-sm">Select Student</strong> 
+            <span class="text-slate-500">•</span>
+            Group: <strong id="hud-group" class="text-cyan-300 font-game text-sm">Group 13</strong>
+            <span class="text-slate-500">•</span>
+            Room: <strong id="hud-room" class="text-emerald-400 font-mono text-xs">GE3-ARENA</strong>
+          </p>
+        </div>
+      </div>
+
+      <!-- Live Indicators -->
+      <div class="flex items-center gap-2 sm:gap-3">
+        <div class="bg-slate-950/85 px-3 py-1.5 rounded-2xl border border-slate-800 text-center min-w-[75px]">
+          <span class="text-[9px] uppercase font-bold text-slate-400 block tracking-wider font-hud">Score</span>
+          <span id="hud-score" class="font-hud font-black text-lg sm:text-2xl text-amber-400">0</span>
+        </div>
+        <div class="bg-slate-950/85 px-3 py-1.5 rounded-2xl border border-slate-800 text-center min-w-[70px]">
+          <span class="text-[9px] uppercase font-bold text-slate-400 block tracking-wider font-hud">Streak</span>
+          <span id="hud-streak" class="font-hud font-black text-lg sm:text-2xl text-emerald-400">0x</span>
+        </div>
+        <div class="bg-slate-950/85 px-3 py-1.5 rounded-2xl border border-slate-800 text-center min-w-[75px]">
+          <span class="text-[9px] uppercase font-bold text-slate-400 block tracking-wider font-hud">Strikes</span>
+          <span id="hud-strikes" class="font-black text-sm sm:text-base text-rose-500">❤️❤️❤️</span>
+        </div>
+        <div class="bg-slate-950/85 px-3 py-1.5 rounded-2xl border border-slate-800 text-center min-w-[70px]">
+          <span class="text-[9px] uppercase font-bold text-slate-400 block tracking-wider font-hud">Progress</span>
+          <span id="hud-progress" class="font-hud font-black text-lg sm:text-2xl text-cyan-400">1 / 10</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Timer Countdown Bar -->
+    <div class="mt-3">
+      <div class="flex justify-between items-center text-[11px] font-bold font-hud text-slate-300 mb-1">
+        <span class="flex items-center gap-1.5">⏱️ ROUND TIMER: <span id="timer-label" class="text-amber-400 text-sm">25s</span></span>
+        <span id="speed-bonus-tag" class="text-cyan-300 font-bold">Accuracy Bonus: +50 PTS</span>
+      </div>
+      <div class="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800">
+        <div id="countdown-bar" class="h-full bg-gradient-to-r from-emerald-400 via-amber-400 to-rose-500 transition-all duration-300" style="width: 100%;"></div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Game Stage Area -->
+  <main class="max-w-5xl w-full mx-auto flex-1 flex flex-col justify-center relative">
+    
+    <!-- PHASE 1: WIN OR LOSE BUZZER ARENA -->
+    <div id="stage-phase-1" class="space-y-3">
+      <div class="bg-slate-900/95 border-4 border-amber-400 rounded-3xl p-5 sm:p-7 shadow-2xl relative glow-gold text-center">
+        <div class="flex items-center justify-between mb-2">
+          <span id="winlose-badge" class="px-3 py-1 bg-amber-500/20 text-amber-300 border border-amber-400/40 rounded-full text-xs font-bold uppercase tracking-wider font-hud">
+            Question 1 of 10
+          </span>
+          <span class="text-xs font-black text-emerald-400 font-hud tracking-wider">
+            +100 PTS • AVOID 3 STRIKES
+          </span>
+        </div>
+        <h2 id="winlose-prompt" class="text-lg sm:text-2xl md:text-3xl font-black text-amber-200 font-game px-2 py-3 leading-relaxed min-h-[75px] flex items-center justify-center">
+          "Loading Win or Lose Challenge..."
+        </h2>
+        <div id="winlose-hint" class="text-xs sm:text-sm text-cyan-300 font-semibold bg-slate-950/70 py-1 px-4 rounded-xl inline-block border border-cyan-500/30">
+          Identify the correct target academic word
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 max-w-4xl mx-auto w-full" id="winlose-options-grid">
+        <button onclick="handleWinLoseClick(0)" id="wl-opt-0" class="arena-btn p-3.5 sm:p-4 bg-gradient-to-r from-slate-900 to-slate-800 border-2 border-cyan-400/50 rounded-2xl text-left flex items-center gap-3">
+          <span class="w-9 h-9 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 font-black font-arcade text-base flex items-center justify-center shrink-0">A</span>
+          <span class="text-sm sm:text-base font-bold font-game text-white tracking-wide truncate" id="wl-lbl-0">Option A</span>
+        </button>
+        <button onclick="handleWinLoseClick(1)" id="wl-opt-1" class="arena-btn p-3.5 sm:p-4 bg-gradient-to-r from-slate-900 to-slate-800 border-2 border-amber-400/50 rounded-2xl text-left flex items-center gap-3">
+          <span class="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-400/40 font-black font-arcade text-base flex items-center justify-center shrink-0">B</span>
+          <span class="text-sm sm:text-base font-bold font-game text-white tracking-wide truncate" id="wl-lbl-1">Option B</span>
+        </button>
+        <button onclick="handleWinLoseClick(2)" id="wl-opt-2" class="arena-btn p-3.5 sm:p-4 bg-gradient-to-r from-slate-900 to-slate-800 border-2 border-fuchsia-400/50 rounded-2xl text-left flex items-center gap-3">
+          <span class="w-9 h-9 rounded-xl bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-400/40 font-black font-arcade text-base flex items-center justify-center shrink-0">C</span>
+          <span class="text-sm sm:text-base font-bold font-game text-white tracking-wide truncate" id="wl-lbl-2">Option C</span>
+        </button>
+        <button onclick="handleWinLoseClick(3)" id="wl-opt-3" class="arena-btn p-3.5 sm:p-4 bg-gradient-to-r from-slate-900 to-slate-800 border-2 border-emerald-400/50 rounded-2xl text-left flex items-center gap-3">
+          <span class="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 font-black font-arcade text-base flex items-center justify-center shrink-0">D</span>
+          <span class="text-sm sm:text-base font-bold font-game text-white tracking-wide truncate" id="wl-lbl-3">Option D</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- PHASE 2: WORD MAGNET ARENA -->
+    <div id="stage-phase-2" class="hidden space-y-3">
+      <div class="bg-slate-900/95 border-2 border-cyan-400 rounded-3xl p-4 sm:p-5 shadow-2xl relative glow-cyan text-center">
+        <div class="flex items-center justify-between mb-1">
+          <span class="px-3 py-0.5 bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 rounded-full text-xs font-bold uppercase tracking-wider font-hud" id="magnet-badge">
+            Word Magnet Puzzle 1 of 5
+          </span>
+          <span class="text-xs font-black text-amber-400 font-hud tracking-wider">
+            TAP WORD MAGNETS TO BUILD THE TARGET SENTENCE
+          </span>
+        </div>
+        <h2 class="text-base sm:text-xl font-black text-amber-200 font-game mt-1">
+          Assemble the scrambled sentence incorporating the target academic word:
+        </h2>
+        <div class="mt-2 inline-block px-3 py-1 bg-amber-500/20 border border-amber-400/40 rounded-xl">
+          <span class="text-xs text-slate-300 font-bold">Target Word: </span>
+          <strong id="magnet-target-word" class="text-amber-300 text-sm font-game uppercase">SUSTAINABLE</strong>
+        </div>
+        <p id="magnet-hint" class="text-xs text-slate-400 mt-1">
+          Context hint: Focus on word order and grammar flow!
+        </p>
+      </div>
+
+      <div class="bg-slate-950/90 border-2 border-slate-800 rounded-3xl p-4 sm:p-6 shadow-xl max-w-4xl mx-auto w-full space-y-3">
+        <span class="text-[10px] uppercase font-bold text-slate-400 block font-hud tracking-wider">
+          Assembled Sentence (Tap words to send them back):
+        </span>
+        <div id="magnet-drop-area" class="magnet-slot p-3 bg-slate-900/80 rounded-2xl border-2 border-dashed border-cyan-500/50 flex flex-wrap gap-2 items-center min-h-[58px]">
+          <span class="text-xs text-slate-500 italic" id="magnet-placeholder">Tap words below to arrange your sentence here...</span>
+        </div>
+
+        <span class="text-[10px] uppercase font-bold text-slate-400 block font-hud tracking-wider pt-2">
+          Available Word Magnets:
+        </span>
+        <div id="magnet-tiles-pool" class="p-3 bg-slate-900/50 rounded-2xl border border-slate-800 flex flex-wrap gap-2 items-center min-h-[58px]"></div>
+
+        <div class="flex justify-between items-center gap-3 pt-2">
+          <button onclick="resetCurrentMagnet()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 transition">
+            ↺ Reset Words
+          </button>
+          <button onclick="checkMagnetSentence()" class="px-6 py-2.5 bg-gradient-to-r from-cyan-400 to-blue-600 hover:from-cyan-300 text-slate-950 font-black text-sm rounded-xl shadow-lg transition active:scale-95 font-hud">
+            VERIFY SENTENCE ✔
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PHASE 3: CROSSWORD PUZZLE ARENA -->
+    <div id="stage-phase-3" class="hidden space-y-3">
+      <div class="bg-slate-900/95 border-2 border-emerald-400 rounded-3xl p-3 sm:p-4 shadow-2xl relative glow-emerald text-center">
+        <div class="flex items-center justify-between mb-1">
+          <span class="px-3 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 rounded-full text-xs font-bold uppercase tracking-wider font-hud">
+            Phase 3: Academic Crossword Arena
+          </span>
+          <span class="text-xs font-bold text-amber-300 font-hud">
+            Fill All 10 Target Academic Words in the Grid!
+          </span>
+        </div>
+        <p class="text-xs text-slate-300">
+          Tap any clue on the list or click a numbered square in the crossword grid to start typing!
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-3 max-w-5xl mx-auto w-full">
+        <!-- Left: Grid -->
+        <div class="lg:col-span-7 bg-slate-950 p-3 sm:p-4 rounded-3xl border-2 border-slate-800 flex flex-col items-center justify-center shadow-inner overflow-x-auto">
+          <div id="crossword-grid" class="inline-grid gap-0.5 p-1 bg-slate-900 rounded-xl border border-slate-800"></div>
+
+          <div class="w-full mt-3 p-2.5 bg-slate-900 rounded-2xl border border-emerald-500/40 flex items-center gap-2">
+            <span id="cw-active-indicator" class="text-xs font-bold font-arcade text-emerald-300 shrink-0">1-ACROSS:</span>
+            <input 
+              type="text" 
+              id="cw-word-input" 
+              placeholder="Type your answer..." 
+              maxlength="15"
+              class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-white font-bold uppercase tracking-widest text-sm focus:outline-none focus:border-emerald-400 transition"
+              oninput="handleCrosswordInput(this.value)"
+            >
+            <button onclick="submitCrosswordWord()" class="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl font-hud shrink-0">
+              SUBMIT ✔
+            </button>
+          </div>
+        </div>
+
+        <!-- Right: Clues -->
+        <div class="lg:col-span-5 bg-slate-950 p-3.5 rounded-3xl border-2 border-slate-800 flex flex-col justify-between max-h-[460px] overflow-y-auto">
+          <div>
+            <h3 class="text-xs font-arcade text-cyan-300 tracking-wider mb-2 border-b border-slate-800 pb-1">
+              ACROSS CLUES (5 Words)
+            </h3>
+            <div class="space-y-1.5 text-xs mb-3" id="cw-across-clues"></div>
+
+            <h3 class="text-xs font-arcade text-amber-300 tracking-wider mb-2 border-b border-slate-800 pb-1">
+              DOWN CLUES (5 Words)
+            </h3>
+            <div class="space-y-1.5 text-xs" id="cw-down-clues"></div>
+          </div>
+
+          <div class="pt-2 border-t border-slate-800 flex justify-between items-center text-xs">
+            <span id="cw-solved-status" class="text-emerald-400 font-bold">Solved: 0 / 10 Words</span>
+            <button onclick="revealCrosswordHint()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg text-[11px] font-bold">
+              💡 Reveal Letter (-20 pts)
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Global Feedback Toast -->
+    <div id="global-feedback" class="mt-2 text-center transition-all duration-300 min-h-[26px] font-bold text-xs sm:text-sm text-slate-400"></div>
+  </main>
+
+  <!-- ============================================== -->
+  <!-- MODALS                                         -->
+  <!-- ============================================== -->
+
+  <!-- Start & Candidate Registration Modal -->
+  <div id="start-modal" class="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-slate-900 border-4 border-amber-400 max-w-lg w-full rounded-3xl p-5 sm:p-7 text-center shadow-2xl space-y-3.5 glow-gold max-h-[95vh] overflow-y-auto">
+      
+      <div class="text-4xl animate-bounce">⚡</div>
+
+      <h2 class="text-2xl sm:text-3xl font-black font-arcade text-amber-300 tracking-wider">
+        VOCABULARY TRI-ARENA!
+      </h2>
+      <p class="text-xs sm:text-sm text-cyan-300 font-semibold">
+        Win or Lose • Word Magnet • Academic Crossword
+      </p>
+
+      <div class="bg-slate-950 p-2.5 rounded-2xl border border-amber-500/40 space-y-0.5">
+        <span class="text-[10px] uppercase font-bold text-slate-400 font-hud tracking-widest block">Academic Designer & Resource Person:</span>
+        <p class="text-sm sm:text-base font-black text-amber-300 font-game">
+          Designed by Muhammad Shahzad
+        </p>
+      </div>
+
+      <!-- Live Room Code Settings -->
+      <div class="bg-slate-950/90 p-3 rounded-2xl border border-cyan-500/40 text-left space-y-1">
+        <label for="reg-room" class="text-[10px] uppercase font-bold text-cyan-300 font-hud tracking-widest block">
+          Live Session Room Code:
+        </label>
+        <input 
+          type="text" 
+          id="reg-room" 
+          value="GE3-ARENA" 
+          class="w-full bg-slate-900 border border-cyan-500/40 rounded-xl px-3 py-1.5 text-white font-mono font-bold text-sm uppercase focus:outline-none focus:border-cyan-400"
+        >
+        <span class="text-[10px] text-slate-400 block">All phones using this code sync straight to the teacher board!</span>
+      </div>
+
+      <!-- Candidate Selection from Official Class Roster -->
+      <div class="space-y-2.5 text-left">
+        <div>
+          <label for="reg-name-select" class="text-xs uppercase font-bold text-amber-400 tracking-wider block font-hud mb-1">
+            Select Your Name from Class Roster: <span class="text-rose-400">*</span>
+          </label>
+          <select 
+            id="reg-name-select" 
+            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-white font-bold text-sm focus:outline-none focus:border-amber-400 transition"
+          >
+            <option value="">-- Click to Select Your Name --</option>
+            <!-- Injected via JavaScript from classRoster array -->
+          </select>
+        </div>
+
+        <div>
+          <label for="reg-group" class="text-xs uppercase font-bold text-cyan-400 tracking-wider block font-hud mb-1">
+            Class Section / Group: <span class="text-rose-400">*</span>
+          </label>
+          <input 
+            type="text" 
+            id="reg-group" 
+            value="Group 13 (GE3)" 
+            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-white font-bold placeholder-slate-500 focus:outline-none focus:border-cyan-400 transition text-sm"
+          >
+        </div>
+
+        <p id="reg-error" class="text-[11px] text-rose-400 font-bold hidden text-center">
+          ⚠️ Please select your official name from the roster!
+        </p>
+      </div>
+
+      <button onclick="launchTriArena()" class="w-full py-3.5 bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-600 hover:from-amber-300 text-slate-950 font-black text-base sm:text-lg rounded-2xl shadow-xl transition active:scale-95 font-hud tracking-wider">
+        ENTER ARENA ▶
+      </button>
+    </div>
+  </div>
+
+  <!-- Phase Transition Checkpoint Modal -->
+  <div id="phase-modal" class="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-slate-900 border-4 border-cyan-400 max-w-lg w-full rounded-3xl p-5 sm:p-7 text-center shadow-2xl space-y-4 glow-cyan">
+      <div class="text-5xl animate-bounce">⚡</div>
+      
+      <span class="px-3 py-1 bg-cyan-500/20 text-cyan-300 border border-cyan-400/50 rounded-full text-xs font-bold uppercase tracking-widest inline-block font-hud" id="pm-badge">
+        Checkpoint Cleared!
+      </span>
+
+      <h2 id="pm-title" class="text-2xl sm:text-3xl font-black font-arcade text-cyan-300">
+        Phase Complete!
+      </h2>
+
+      <div class="bg-slate-950 px-4 py-2.5 rounded-2xl border border-slate-800 grid grid-cols-2 gap-2 text-left text-xs">
+        <div>
+          <span class="text-slate-400 uppercase font-bold block text-[10px] font-hud">Candidate</span>
+          <strong id="pm-student-name" class="text-amber-300 text-sm font-game">Student</strong>
+        </div>
+        <div>
+          <span class="text-slate-400 uppercase font-bold block text-[10px] font-hud">Assigned Group</span>
+          <strong id="pm-student-group" class="text-cyan-300 text-sm font-game">Group 13</strong>
+        </div>
+      </div>
+
+      <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 grid grid-cols-2 gap-3 text-left">
+        <div class="bg-slate-900/90 p-3 rounded-xl border border-cyan-500/30">
+          <span class="text-[10px] text-cyan-400 font-bold uppercase tracking-wider block font-hud" id="pm-phase-label">Phase Score</span>
+          <p id="pm-phase-score" class="text-xl sm:text-2xl font-black font-hud text-cyan-300">0 pts</p>
+        </div>
+        <div class="bg-slate-950 p-3 rounded-xl border border-emerald-500/30">
+          <span class="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block font-hud">Running Total</span>
+          <p id="pm-total-score" class="text-xl sm:text-2xl font-black font-hud text-emerald-300">0 pts</p>
+        </div>
+      </div>
+
+      <p id="pm-desc" class="text-xs sm:text-sm text-slate-300 leading-relaxed"></p>
+
+      <button onclick="advanceToNextPhase()" id="btn-advance-phase" class="w-full py-3.5 bg-gradient-to-r from-cyan-400 to-blue-600 hover:from-cyan-300 text-slate-950 font-black text-base sm:text-lg rounded-2xl shadow-xl transition active:scale-95 font-hud">
+        PROCEED TO NEXT ARENA ▶
+      </button>
+    </div>
+  </div>
+
+  <!-- Grand Finale Scorecard Modal (Also rendered for Teacher Inspection) -->
+  <div id="final-modal" class="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-slate-900 border-4 border-amber-400 max-w-xl w-full rounded-3xl p-5 sm:p-7 text-center shadow-2xl space-y-4 max-h-[92vh] flex flex-col glow-gold">
+      
+      <div id="final-icon" class="text-4xl sm:text-5xl">🏆</div>
+
+      <h2 id="final-title" class="text-2xl sm:text-3xl font-black font-arcade text-amber-400">
+        ALL 3 ARENAS CLEARED!
+      </h2>
+
+      <!-- Candidate Box -->
+      <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-left text-xs grid grid-cols-2 gap-2">
+        <div>
+          <span class="text-slate-400 uppercase font-bold block text-[10px] font-hud">Candidate</span>
+          <strong id="final-name" class="text-amber-300 text-sm font-game">Student Name</strong>
+        </div>
+        <div>
+          <span class="text-slate-400 uppercase font-bold block text-[10px] font-hud">Group Section</span>
+          <strong id="final-group" class="text-cyan-300 text-sm font-game">Group 13</strong>
+        </div>
+        <div class="col-span-2 pt-1 border-t border-slate-800 text-slate-400 text-[10px]">
+          Academic Designer & Resource Person: <strong class="text-amber-300 font-semibold">Muhammad Shahzad</strong>
+        </div>
+      </div>
+
+      <!-- Stat Badges -->
+      <div class="grid grid-cols-3 gap-2 text-left">
+        <div class="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+          <span class="text-[9px] uppercase font-bold text-slate-400 block font-hud">Grand Total</span>
+          <p id="final-total" class="text-lg sm:text-2xl font-black font-hud text-amber-400">0 pts</p>
+        </div>
+        <div class="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+          <span class="text-[9px] uppercase font-bold text-slate-400 block font-hud">Accuracy Rate</span>
+          <p id="final-acc" class="text-lg sm:text-2xl font-black font-hud text-emerald-400">0%</p>
+        </div>
+        <div class="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+          <span class="text-[9px] uppercase font-bold text-slate-400 block font-hud">Completed Tasks</span>
+          <p id="final-tasks-count" class="text-lg sm:text-2xl font-black font-hud text-cyan-400">25 / 25</p>
+        </div>
+      </div>
+
+      <!-- Itemized Breakdown -->
+      <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 text-left text-xs space-y-1.5">
+        <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider block font-hud">3-Phase Arena Breakdown:</span>
+        <div class="flex items-center justify-between text-slate-300" id="final-row-p1">
+          <span>Phase 1: Win or Lose Quiz (10 Qs)</span>
+          <strong class="text-amber-400 font-bold">0 pts</strong>
+        </div>
+        <div class="flex items-center justify-between text-slate-300" id="final-row-p2">
+          <span>Phase 2: Word Magnet Arena (5 Scrambles)</span>
+          <strong class="text-cyan-400 font-bold">0 pts</strong>
+        </div>
+        <div class="flex items-center justify-between text-slate-300" id="final-row-p3">
+          <span>Phase 3: Crossword Arena (10 Words)</span>
+          <strong class="text-emerald-400 font-bold">0 pts</strong>
+        </div>
+      </div>
+
+      <!-- Itemized Performance Log -->
+      <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-left text-xs overflow-y-auto max-h-36 pr-1 space-y-1.5" id="final-history-log"></div>
+
+      <!-- Sync Status Notification -->
+      <div id="final-mqtt-sync-status" class="text-xs font-bold text-emerald-400 py-1 bg-emerald-950/40 border border-emerald-500/40 rounded-xl">
+        📡 Synced live to Teacher Spectator Screen!
+      </div>
+
+      <div class="flex items-center gap-2.5 pt-1">
+        <button onclick="window.print()" class="w-1/2 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs sm:text-sm rounded-xl transition font-hud">
+          🖨️ Print Performance Sheet
+        </button>
+        <button onclick="closeOrRestartModal()" class="w-1/2 py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow-lg transition font-hud">
+          CLOSE / RESTART ↺
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- TEACHER LIVE SPECTATOR DASHBOARD MODAL         -->
+  <!-- ============================================== -->
+  <div id="teacher-spectator-modal" class="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-50 hidden flex flex-col p-3 sm:p-6">
+    <div class="max-w-6xl w-full mx-auto bg-slate-900 border-2 border-amber-400/60 rounded-3xl p-4 sm:p-6 shadow-2xl flex-1 flex flex-col overflow-hidden glow-gold">
+      
+      <!-- Teacher Top Bar -->
+      <div class="flex flex-wrap items-center justify-between border-b border-slate-800 pb-3 mb-3 gap-2">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-emerald-400 animate-pulse"></span>
+            <h2 class="text-lg sm:text-2xl font-black font-arcade text-amber-300">TEACHER LIVE SPECTATOR HUB</h2>
+          </div>
+          <p class="text-xs text-slate-400 mt-0.5">
+            Room Code: <strong class="text-emerald-400 font-mono text-sm" id="t-display-room">GE3-ARENA</strong> • 
+            Broker: <span id="t-broker-status" class="text-emerald-400 font-bold">Online & Listening</span>
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="exportTeacherRecordCSV()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold font-hud transition shadow">
+            📥 Export Gradebook CSV
+          </button>
+          <button onclick="closeTeacherSpectator()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition">
+            ✕ Back to Arena
+          </button>
+        </div>
+      </div>
+
+      <!-- Dual Screen Tabs -->
+      <div class="flex gap-2 mb-3">
+        <button id="t-tab-btn-comp" onclick="switchTeacherScreen('completed')" class="px-4 py-2 bg-amber-500 text-slate-950 font-black rounded-xl text-xs font-hud transition">
+          SCREEN 1: COMPLETED LEADERBOARD (<span id="t-comp-count">0</span>)
+        </button>
+        <button id="t-tab-btn-pend" onclick="switchTeacherScreen('pending')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs font-hud transition">
+          SCREEN 2: PENDING / NOT COMPLETED (<span id="t-pend-count">25</span>)
+        </button>
+      </div>
+
+      <!-- SCREEN 1: COMPLETED LEADERBOARD -->
+      <div id="t-screen-completed" class="flex-1 overflow-y-auto pr-1">
+        <table class="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr class="border-b border-slate-800 text-amber-300 font-hud text-[11px] uppercase tracking-wider">
+              <th class="py-2.5 px-3">Rank</th>
+              <th class="py-2.5 px-3">Student Name</th>
+              <th class="py-2.5 px-3">Group</th>
+              <th class="py-2.5 px-3 text-center">Score</th>
+              <th class="py-2.5 px-3 text-center">Accuracy</th>
+              <th class="py-2.5 px-3">Submission Time</th>
+              <th class="py-2.5 px-3 text-right">Student Card</th>
+            </tr>
+          </thead>
+          <tbody id="t-completed-tbody" class="divide-y divide-slate-800/60 font-medium">
+            <tr>
+              <td colspan="7" class="py-8 text-center text-slate-500 italic">
+                Waiting for students to complete all 3 arena phases...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- SCREEN 2: PENDING / NOT COMPLETED STUDENTS -->
+      <div id="t-screen-pending" class="hidden flex-1 overflow-y-auto pr-1">
+        <div class="mb-2 p-2.5 bg-slate-950/80 rounded-xl border border-slate-800 text-xs text-slate-400">
+          Tracking the official class roster. As students complete the game on their phones, their names move from this list to the Completed Leaderboard in real time.
+        </div>
+        <table class="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr class="border-b border-slate-800 text-cyan-300 font-hud text-[11px] uppercase tracking-wider">
+              <th class="py-2.5 px-3">#</th>
+              <th class="py-2.5 px-3">Student Name (Official Roster)</th>
+              <th class="py-2.5 px-3">Status</th>
+              <th class="py-2.5 px-3 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody id="t-pending-tbody" class="divide-y divide-slate-800/60 font-medium">
+            <!-- Dynamically populated from classRoster -->
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // ==========================================
+    // 1. OFFICIAL CLASS ROSTER (25 Students)
+    // ==========================================
+    const classRoster = [
+      "ABDUL RAHMAN AHMED HAMOOD AL-NAUMANI",
+      "ABRAR NASSER KHALFAN AL ALAWI",
+      "AHMED MAJID HAREEZ SALIM AL-RAHBI",
+      "AL AMEER ALI SALIM AL'OWAISI",
+      "AL FAISAL ABDULLAH ZAHIR AL RIYAMI",
+      "AL HANOOF RASHID KHAMIS SALIM AL GHANBOOSI",
+      "AL HASSAN ALI SULAIMAN AL ZAHLI",
+      "ANSAM AHMED KHAMIS AL-MUSALHI",
+      "AZAM DAWOOD SULAIMAN MOHAMED AL YAZEEDI",
+      "Abal Kassim Ramadhan Kassim",
+      "BUDOOR KHALID YAHYA AL DHAKHRI",
+      "EDHAH HASSAN MOHAMED AL HIZAMI",
+      "HAFSA SALIM MOHAMED ABDULLAH AL BUSAFI",
+      "KHALID WASEEM MAHASIN WASEEM AL BUSAIDI",
+      "LUJIN RASHID JUMA AL-RASBI",
+      "LYTH SULTAN MOHAMED SULTAN AL RASHDI",
+      "MAAB KHAMIS SAID AL WAHAIBI",
+      "MARYAM AWADH NASSER AL SUBHI",
+      "RATAJ BADAR SAID AL AMRI",
+      "RAYYAN ABDULLAH HUMAID RASHEED AL DHAWI",
+      "SAID MOHAMMED SAID HAMDAN AL HASHMI",
+      "SALEM NASSER HAMED AL-OWAISI",
+      "SAMA ASAAD SAIF SULAIMAN AL-RAHBI",
+      "SHAIKHA SAIF ALI AL SHANAWI",
+      "SHAYMA JAMIL SALIM ALI AL MUQAHIMI"
+    ];
+
+    // ==========================================
+    // 2. DATASETS (PHASE 1, 2, 3)
+    // ==========================================
+    const winLoseData = [
+      {
+        word: "sustainable",
+        prompt: "Using solar panels and recycled water creates a ________ campus that preserves resources for future generations.",
+        hint: "Able to be maintained over time without damaging the environment",
+        distractors: ["appealing", "principal", "material"]
+      },
+      {
+        word: "innovative",
+        prompt: "The engineering students designed an ________ AI water-desalination device that won first prize in Muscat.",
+        hint: "Featuring new, advanced, creative, and original methods",
+        distractors: ["committed", "philosophy", "element"]
+      },
+      {
+        word: "material",
+        prompt: "Bamboo and volcanic limestone are durable building ________ used in eco-friendly architecture.",
+        hint: "Physical substance, matter, or fabric used to construct items",
+        distractors: ["influence", "function", "philosophy"]
+      },
+      {
+        word: "principal",
+        prompt: "The ________ reason for switching to renewable energy is to reduce dangerous carbon emissions.",
+        hint: "Most important, main, primary, or chief",
+        distractors: ["appealing", "element", "committed"]
+      },
+      {
+        word: "influence",
+        prompt: "Social media marketing has a powerful ________ on the purchasing habits of young consumers.",
+        hint: "The effect, power, or capacity to shape decisions and behavior",
+        distractors: ["function", "material", "sustainable"]
+      },
+      {
+        word: "function",
+        prompt: "The primary ________ of a hospital isolation ward is to stop the spread of infectious airborne viruses.",
+        hint: "The natural purpose, practical role, or duty of a system",
+        distractors: ["philosophy", "appealing", "innovative"]
+      },
+      {
+        word: "appealing",
+        prompt: "The bright green garden courtyard made the new campus library an ________ place for quiet study.",
+        hint: "Attractive, inviting, enjoyable, and pleasing to the senses",
+        distractors: ["principal", "material", "element"]
+      },
+      {
+        word: "committed",
+        prompt: "The faculty staff are fully ________ to helping foundation students pass their academic exams.",
+        hint: "Dedicated, devoted, loyal, and bound to a specific mission",
+        distractors: ["sustainable", "influence", "function"]
+      },
+      {
+        word: "element",
+        prompt: "Honesty and factual accuracy are the key ________ of any trustworthy academic research paper.",
+        hint: "An essential component, basic part, or ingredient of a whole",
+        distractors: ["philosophy", "appealing", "innovative"]
+      },
+      {
+        word: "philosophy",
+        prompt: "The university's teaching ________ is centered on learner autonomy and hands-on critical thinking.",
+        hint: "A system of guiding principles, beliefs, and core values",
+        distractors: ["material", "principal", "sustainable"]
+      }
+    ];
+
+    const wordMagnetPuzzles = [
+      {
+        id: 1,
+        targetWord: "sustainable",
+        hint: "Preserving resources for future generations",
+        correctSentence: ["Solar", "energy", "provides", "a", "sustainable", "solution", "for", "cities"],
+        tiles: ["solution", "Solar", "sustainable", "cities", "provides", "energy", "for", "a"]
+      },
+      {
+        id: 2,
+        targetWord: "innovative",
+        hint: "New creative technologies winning awards",
+        correctSentence: ["The", "students", "created", "an", "innovative", "water", "filter", "device"],
+        tiles: ["filter", "innovative", "The", "device", "students", "water", "created", "an"]
+      },
+      {
+        id: 3,
+        targetWord: "principal",
+        hint: "Main or primary reason",
+        correctSentence: ["Reducing", "pollution", "is", "the", "principal", "goal", "of", "green", "projects"],
+        tiles: ["goal", "the", "green", "principal", "is", "pollution", "Reducing", "projects", "of"]
+      },
+      {
+        id: 4,
+        targetWord: "committed",
+        hint: "Dedicated researchers protecting nature",
+        correctSentence: ["The", "researchers", "are", "fully", "committed", "to", "environmental", "protection"],
+        tiles: ["to", "fully", "committed", "protection", "The", "environmental", "researchers", "are"]
+      },
+      {
+        id: 5,
+        targetWord: "philosophy",
+        hint: "Guiding teaching beliefs",
+        correctSentence: ["Learner", "autonomy", "is", "a", "core", "philosophy", "in", "higher", "education"],
+        tiles: ["education", "core", "Learner", "is", "philosophy", "in", "autonomy", "a", "higher"]
+      }
+    ];
+
+    const crosswordWords = [
+      { num: 1, dir: 'across', word: "INNOVATIVE", row: 1, col: 1, clue: "1. Featuring fresh, advanced, and groundbreaking creative ideas." },
+      { num: 3, dir: 'across', word: "ELEMENT", row: 4, col: 3, clue: "3. A basic, essential part or building block of a whole system." },
+      { num: 5, dir: 'across', word: "SUSTAINABLE", row: 6, col: 0, clue: "5. Able to continue over time without depleting natural resources." },
+      { num: 7, dir: 'across', word: "FUNCTION", row: 8, col: 3, clue: "7. The practical purpose, special task, or duty of something." },
+      { num: 9, dir: 'across', word: "APPEALING", row: 11, col: 2, clue: "9. Attractive, inviting, and pleasing to the eye or senses." },
+      { num: 2, dir: 'down', word: "MATERIAL", row: 0, col: 5, clue: "2. The physical substance or matter from which things are constructed." },
+      { num: 4, dir: 'down', word: "COMMITTED", row: 3, col: 8, clue: "4. Dedicated, devoted, and wholeheartedly loyal to a pledge." },
+      { num: 6, dir: 'down', word: "PRINCIPAL", row: 4, col: 1, clue: "6. First in order of importance, rank, or value; the main priority." },
+      { num: 8, dir: 'down', word: "PHILOSOPHY", row: 0, col: 10, clue: "8. A set of overarching guiding beliefs, principles, and values." },
+      { num: 10, dir: 'down', word: "INFLUENCE", row: 4, col: 12, clue: "10. The capacity or power to have an effect on character or events." }
+    ];
+
+    const CW_ROWS = 13;
+    const CW_COLS = 13;
+    let cwGridMatrix = Array(CW_ROWS).fill(null).map(() => Array(CW_COLS).fill(null));
+
+    crosswordWords.forEach(entry => {
+      const w = entry.word;
+      for (let i = 0; i < w.length; i++) {
+        const r = entry.dir === 'across' ? entry.row : entry.row + i;
+        const c = entry.dir === 'across' ? entry.col + i : entry.col;
+        if (!cwGridMatrix[r][c]) {
+          cwGridMatrix[r][c] = { letter: w[i], number: null, words: [] };
+        }
+        if (i === 0) {
+          cwGridMatrix[r][c].number = entry.num;
+        }
+        cwGridMatrix[r][c].words.push(entry);
+      }
+    });
+
+    // ==========================================
+    // 3. GLOBAL VARIABLES & STATE
+    // ==========================================
+    let candidateName = "";
+    let candidateGroup = "Group 13";
+    let roomCode = "GE3-ARENA";
+    let currentPhase = 1;
+    let score = 0;
+    let phaseScores = { 1: 0, 2: 0, 3: 0 };
+    let streak = 0;
+    let strikes = 3;
+    let timerValue = 25;
+    let timerMax = 25;
+    let timerInterval = null;
+    let isRoundActive = false;
+    let audioOn = true;
+    let gameHistory = [];
+
+    let wlIndex = 0;
+    let shuffledWL = [];
+    let currentWLOptions = [];
+
+    let magnetIndex = 0;
+    let activeMagnetSentence = [];
+    let currentMagnetPool = [];
+
+    let selectedCwWord = null;
+    let solvedCwWords = [];
+
+    // Teacher Spectator Live State
+    let liveSubmissions = []; // Stores objects received via MQTT
+
+    // ==========================================
+    // 4. MQTT WEBSOCKET CONNECTION
+    // ==========================================
+    let mqttClient = null;
+
+    function initMqtt() {
+      const clientId = "arena_" + Math.random().toString(16).substring(2, 10);
+      mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "/mqtt", clientId);
+
+      mqttClient.onMessageArrived = (message) => {
+        try {
+          const payload = JSON.parse(message.payloadString);
+          handleIncomingStudentSubmission(payload);
+        } catch (e) {
+          console.error("Payload error:", e);
+        }
+      };
+
+      mqttClient.onConnectionLost = (resp) => {
+        console.warn("MQTT connection lost:", resp);
+        document.getElementById("t-broker-status").innerText = "Reconnecting...";
+        document.getElementById("t-broker-status").className = "text-rose-400 font-bold";
+        setTimeout(initMqtt, 3000);
+      };
+
+      mqttClient.connect({
+        useSSL: true,
+        timeout: 5,
+        onSuccess: () => {
+          console.log("Connected to HiveMQ WSS Broker!");
+          document.getElementById("t-broker-status").innerText = "Online & Listening";
+          document.getElementById("t-broker-status").className = "text-emerald-400 font-bold";
+          // Subscribe to the classroom room topic
+          const currentRoom = document.getElementById("reg-room").value.trim().toUpperCase() || "GE3-ARENA";
+          mqttClient.subscribe(`utas/vocabulary/${currentRoom}/completed`);
+        },
+        onFailure: (err) => {
+          console.error("MQTT Connect Error:", err);
+          document.getElementById("t-broker-status").innerText = "Connection Failed";
+          document.getElementById("t-broker-status").className = "text-rose-400 font-bold";
+        }
+      });
+    }
+
+    function publishStudentCompletion(payload) {
+      if (!mqttClient || !mqttClient.isConnected()) {
+        console.warn("MQTT not connected, skipping publish");
+        return;
+      }
+      const message = new Paho.MQTT.Message(JSON.stringify(payload));
+      message.destinationName = `utas/vocabulary/${payload.room}/completed`;
+      message.retained = true; // Retain message so teacher board picks it up even if opened later
+      mqttClient.send(message);
+    }
+
+    function handleIncomingStudentSubmission(data) {
+      // Avoid duplicate from same student (update record)
+      const existingIdx = liveSubmissions.findIndex(s => s.name.toUpperCase() === data.name.toUpperCase());
+      if (existingIdx !== -1) {
+        liveSubmissions[existingIdx] = data;
+      } else {
+        liveSubmissions.push(data);
+      }
+      renderTeacherScreens();
+    }
+
+    // ==========================================
+    // 5. AUDIO SYNTHESIZER
+    // ==========================================
+    let audioCtx = null;
+    function initAudio() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    }
+
+    function playTone(freq, dur, type = 'sine', vol = 0.25) {
+      if (!audioOn) return;
+      initAudio();
+      if (!audioCtx) return;
+      try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + dur);
+      } catch (e) { console.warn(e); }
+    }
+
+    function soundWin() {
+      playTone(523.25, 0.1, 'sine', 0.25);
+      setTimeout(() => playTone(659.25, 0.1, 'sine', 0.25), 85);
+      setTimeout(() => playTone(783.99, 0.12, 'sine', 0.3), 170);
+      setTimeout(() => playTone(1046.50, 0.3, 'triangle', 0.35), 260);
+    }
+    function soundLose() {
+      playTone(220, 0.15, 'sawtooth', 0.35);
+      setTimeout(() => playTone(146.83, 0.35, 'sawtooth', 0.4), 120);
+    }
+    function soundTick() { playTone(800, 0.04, 'sine', 0.08); }
+    function soundFanfare() {
+      playTone(440, 0.1, 'triangle', 0.3);
+      setTimeout(() => playTone(554.37, 0.1, 'triangle', 0.3), 100);
+      setTimeout(() => playTone(659.25, 0.15, 'triangle', 0.35), 200);
+      setTimeout(() => playTone(880, 0.4, 'sine', 0.4), 300);
+    }
+
+    function toggleAudio() {
+      audioOn = !audioOn;
+      document.getElementById('audio-lbl').textContent = audioOn ? '🔊 Sound ON' : '🔇 Sound OFF';
+    }
+
+    // ==========================================
+    // 6. INITIALIZATION & LAUNCH
+    // ==========================================
+    window.addEventListener('DOMContentLoaded', () => {
+      // Populate student dropdown from classRoster
+      const sel = document.getElementById('reg-name-select');
+      classRoster.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        sel.appendChild(opt);
+      });
+
+      // Initialize MQTT connection immediately
+      initMqtt();
+      renderTeacherScreens();
+    });
+
+    function launchTriArena() {
+      const sel = document.getElementById('reg-name-select');
+      const groupInput = document.getElementById('reg-group');
+      const roomInput = document.getElementById('reg-room');
+
+      const nameVal = sel.value.trim();
+      const groupVal = groupInput.value.trim();
+      const roomVal = roomInput.value.trim().toUpperCase() || "GE3-ARENA";
+
+      if (!nameVal) {
+        document.getElementById('reg-error').classList.remove('hidden');
+        sel.focus();
+        return;
+      }
+
+      document.getElementById('reg-error').classList.add('hidden');
+      candidateName = nameVal;
+      candidateGroup = groupVal;
+      roomCode = roomVal;
+
+      document.getElementById('hud-name').textContent = candidateName;
+      document.getElementById('hud-group').textContent = candidateGroup;
+      document.getElementById('hud-room').textContent = roomCode;
+
+      document.getElementById('start-modal').classList.add('hidden');
+      document.getElementById('phase-modal').classList.add('hidden');
+      document.getElementById('final-modal').classList.add('hidden');
+
+      initAudio();
+      score = 0;
+      phaseScores = { 1: 0, 2: 0, 3: 0 };
+      streak = 0;
+      gameHistory = [];
+
+      startPhase(1);
+    }
+
+    function startPhase(phaseNum) {
+      currentPhase = phaseNum;
+      strikes = 3;
+      streak = 0;
+      updateHeaderHud();
+
+      document.getElementById('stage-phase-1').classList.add('hidden');
+      document.getElementById('stage-phase-2').classList.add('hidden');
+      document.getElementById('stage-phase-3').classList.add('hidden');
+
+      const pill = document.getElementById('hud-phase-pill');
+
+      if (currentPhase === 1) {
+        pill.textContent = "PHASE 1: WIN OR LOSE QUIZ";
+        pill.className = "px-2.5 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-400/50 rounded-full text-[11px] font-bold uppercase tracking-wider font-hud";
+        document.getElementById('stage-phase-1').classList.remove('hidden');
+        wlIndex = 0;
+        shuffledWL = [...winLoseData].sort(() => Math.random() - 0.5);
+        loadWinLoseQuestion(0);
+
+      } else if (currentPhase === 2) {
+        pill.textContent = "PHASE 2: WORD MAGNET ARENA";
+        pill.className = "px-2.5 py-0.5 bg-cyan-500/20 text-cyan-300 border border-cyan-400/50 rounded-full text-[11px] font-bold uppercase tracking-wider font-hud";
+        document.getElementById('stage-phase-2').classList.remove('hidden');
+        magnetIndex = 0;
+        loadMagnetPuzzle(0);
+
+      } else if (currentPhase === 3) {
+        pill.textContent = "PHASE 3: ACADEMIC CROSSWORD";
+        pill.className = "px-2.5 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-400/50 rounded-full text-[11px] font-bold uppercase tracking-wider font-hud";
+        document.getElementById('stage-phase-3').classList.remove('hidden');
+        setupCrosswordArena();
+      }
+    }
+
+    // ==========================================
+    // 7. PHASE 1 ENGINE
+    // ==========================================
+    function loadWinLoseQuestion(index) {
+      if (index >= shuffledWL.length || strikes <= 0) {
+        handlePhaseCompletion(1);
+        return;
+      }
+
+      wlIndex = index;
+      isRoundActive = true;
+      const q = shuffledWL[wlIndex];
+
+      document.getElementById('hud-progress').textContent = `${wlIndex + 1} / 10`;
+      document.getElementById('winlose-badge').textContent = `Question ${wlIndex + 1} of 10`;
+      document.getElementById('winlose-prompt').textContent = `"${q.prompt}"`;
+      document.getElementById('winlose-hint').textContent = `Context Clue: ${q.hint}`;
+      document.getElementById('global-feedback').textContent = '';
+
+      currentWLOptions = [q.word, ...q.distractors].sort(() => Math.random() - 0.5);
+
+      for (let i = 0; i < 4; i++) {
+        const btn = document.getElementById(`wl-opt-${i}`);
+        const lbl = document.getElementById(`wl-lbl-${i}`);
+        btn.disabled = false;
+        btn.classList.remove('btn-win', 'btn-lose', 'opacity-30');
+        lbl.textContent = currentWLOptions[i];
+      }
+
+      startTimer(25);
+    }
+
+    function handleWinLoseClick(idx) {
+      if (!isRoundActive) return;
+      isRoundActive = false;
+      clearInterval(timerInterval);
+
+      const q = shuffledWL[wlIndex];
+      const selectedWord = currentWLOptions[idx];
+      const isCorrect = selectedWord === q.word;
+      const clickedBtn = document.getElementById(`wl-opt-${idx}`);
+
+      for (let i = 0; i < 4; i++) document.getElementById(`wl-opt-${i}`).disabled = true;
+
+      if (isCorrect) {
+        soundWin();
+        if (clickedBtn) clickedBtn.classList.add('btn-win');
+        streak++;
+        const speedBonus = timerValue > (timerMax / 2) ? 50 : 0;
+        const streakBonus = streak > 1 ? (streak - 1) * 20 : 0;
+        const pts = 100 + speedBonus + streakBonus;
+        score += pts;
+        phaseScores[1] += pts;
+        updateHeaderHud();
+
+        document.getElementById('global-feedback').textContent = `⭐ WIN! +${pts} PTS! Word: "${q.word}"`;
+        document.getElementById('global-feedback').className = "mt-2 text-center transition-all duration-300 min-h-[26px] font-bold text-sm text-emerald-400";
+
+        gameHistory.push({ phase: 1, title: `Q${wlIndex + 1}: ${q.word}`, result: "Win (Correct)", pts: pts });
+
+        setTimeout(() => loadWinLoseQuestion(wlIndex + 1), 1200);
+
+      } else {
+        soundLose();
+        if (clickedBtn) clickedBtn.classList.add('btn-lose');
+        streak = 0;
+        strikes--;
+        updateHeaderHud();
+
+        for (let i = 0; i < 4; i++) {
+          if (currentWLOptions[i] === q.word) {
+            document.getElementById(`wl-opt-${i}`).classList.add('btn-win');
+          }
+        }
+
+        document.getElementById('global-feedback').textContent = `✖ LOSE! Strike lost! Correct word: "${q.word}"`;
+        document.getElementById('global-feedback').className = "mt-2 text-center transition-all duration-300 min-h-[26px] font-bold text-sm text-rose-400";
+
+        gameHistory.push({ phase: 1, title: `Q${wlIndex + 1}: ${q.word}`, result: `Lose (Ans: ${q.word})`, pts: 0 });
+
+        setTimeout(() => {
+          if (strikes <= 0) handlePhaseCompletion(1);
+          else loadWinLoseQuestion(wlIndex + 1);
+        }, 1500);
+      }
+    }
+
+    // ==========================================
+    // 8. PHASE 2 ENGINE
+    // ==========================================
+    function loadMagnetPuzzle(index) {
+      if (index >= wordMagnetPuzzles.length) {
+        handlePhaseCompletion(2);
+        return;
+      }
+
+      magnetIndex = index;
+      isRoundActive = true;
+      const puzzle = wordMagnetPuzzles[magnetIndex];
+
+      document.getElementById('hud-progress').textContent = `${magnetIndex + 1} / 5`;
+      document.getElementById('magnet-badge').textContent = `Word Magnet Puzzle ${magnetIndex + 1} of 5`;
+      document.getElementById('magnet-target-word').textContent = puzzle.targetWord;
+      document.getElementById('magnet-hint').textContent = `Context Hint: ${puzzle.hint}`;
+      document.getElementById('global-feedback').textContent = '';
+
+      activeMagnetSentence = [];
+      currentMagnetPool = [...puzzle.tiles];
+      renderMagnetBoard();
+      startTimer(45);
+    }
+
+    function renderMagnetBoard() {
+      const dropArea = document.getElementById('magnet-drop-area');
+      const poolArea = document.getElementById('magnet-tiles-pool');
+
+      dropArea.innerHTML = '';
+      poolArea.innerHTML = '';
+
+      if (activeMagnetSentence.length === 0) {
+        dropArea.innerHTML = `<span class="text-xs text-slate-500 italic" id="magnet-placeholder">Tap words below to arrange your sentence here...</span>`;
+      } else {
+        activeMagnetSentence.forEach((word, idx) => {
+          const tile = document.createElement('button');
+          tile.className = "magnet-tile px-3 py-1.5 bg-cyan-950 border border-cyan-400 text-cyan-200 font-bold text-xs rounded-xl flex items-center gap-1.5 active:scale-95";
+          tile.innerHTML = `<span>${word}</span><span class="text-[10px] text-cyan-400 opacity-60">✕</span>`;
+          tile.onclick = () => returnMagnetWord(idx);
+          dropArea.appendChild(tile);
+        });
+      }
+
+      currentMagnetPool.forEach((word, idx) => {
+        const tile = document.createElement('button');
+        tile.className = "magnet-tile px-3.5 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white font-bold text-xs rounded-xl shadow active:scale-95";
+        tile.textContent = word;
+        tile.onclick = () => selectMagnetWord(idx);
+        poolArea.appendChild(tile);
+      });
+    }
+
+    function selectMagnetWord(idx) {
+      if (!isRoundActive) return;
+      const word = currentMagnetPool.splice(idx, 1)[0];
+      activeMagnetSentence.push(word);
+      playTone(480, 0.06, 'triangle', 0.2);
+      renderMagnetBoard();
+    }
+
+    function returnMagnetWord(idx) {
+      if (!isRoundActive) return;
+      const word = activeMagnetSentence.splice(idx, 1)[0];
+      currentMagnetPool.push(word);
+      playTone(360, 0.06, 'triangle', 0.2);
+      renderMagnetBoard();
+    }
+
+    function resetCurrentMagnet() {
+      const puzzle = wordMagnetPuzzles[magnetIndex];
+      activeMagnetSentence = [];
+      currentMagnetPool = [...puzzle.tiles];
+      renderMagnetBoard();
+    }
+
+    function checkMagnetSentence() {
+      if (!isRoundActive) return;
+      const puzzle = wordMagnetPuzzles[magnetIndex];
+
+      const userSentence = activeMagnetSentence.join(' ');
+      const targetSentence = puzzle.correctSentence.join(' ');
+
+      if (userSentence === targetSentence) {
+        soundWin();
+        clearInterval(timerInterval);
+        isRoundActive = false;
+
+        const pts = 150 + (timerValue > 20 ? 50 : 0);
+        score += pts;
+        phaseScores[2] += pts;
+        updateHeaderHud();
+
+        document.getElementById('global-feedback').textContent = `⭐ PERFECT SENTENCE! +${pts} PTS! ("${puzzle.targetWord}")`;
+        document.getElementById('global-feedback').className = "mt-2 text-center transition-all duration-300 min-h-[26px] font-bold text-sm text-emerald-400";
+
+        gameHistory.push({ phase: 2, title: `Magnet #${magnetIndex + 1}: ${puzzle.targetWord}`, result: "Accurate Sentence", pts: pts });
+
+        setTimeout(() => loadMagnetPuzzle(magnetIndex + 1), 1400);
+
+      } else {
+        soundLose();
+        document.getElementById('global-feedback').textContent = `✖ Incorrect word order! Read the grammatical flow and adjust the magnets.`;
+        document.getElementById('global-feedback').className = "mt-2 text-center transition-all duration-300 min-h-[26px] font-bold text-sm text-rose-400";
+      }
+    }
+
+    // ==========================================
+    // 9. PHASE 3 ENGINE
+    // ==========================================
+    function setupCrosswordArena() {
+      selectedCwWord = null;
+      solvedCwWords = [];
+      document.getElementById('hud-progress').textContent = `0 / 10`;
+
+      renderCrosswordMatrix();
+      renderCrosswordClues();
+      startTimer(90);
+    }
+
+    function renderCrosswordMatrix() {
+      const gridEl = document.getElementById('crossword-grid');
+      gridEl.innerHTML = '';
+      gridEl.style.gridTemplateColumns = `repeat(${CW_COLS}, minmax(0, 1fr))`;
+
+      for (let r = 0; r < CW_ROWS; r++) {
+        for (let c = 0; c < CW_COLS; c++) {
+          const cellData = cwGridMatrix[r][c];
+          const cellEl = document.createElement('div');
+          cellEl.id = `cw-cell-${r}-${c}`;
+
+          if (!cellData) {
+            cellEl.className = "crossword-cell black";
+          } else {
+            cellEl.className = "crossword-cell cursor-pointer";
+            if (cellData.number) {
+              const numSpan = document.createElement('span');
+              numSpan.className = "crossword-num";
+              numSpan.textContent = cellData.number;
+              cellEl.appendChild(numSpan);
+            }
+            cellEl.onclick = () => selectCrosswordCell(r, c);
+          }
+          gridEl.appendChild(cellEl);
+        }
+      }
+    }
+
+    function renderCrosswordClues() {
+      const acrossContainer = document.getElementById('cw-across-clues');
+      const downContainer = document.getElementById('cw-down-clues');
+
+      acrossContainer.innerHTML = '';
+      downContainer.innerHTML = '';
+
+      crosswordWords.forEach(entry => {
+        const clueEl = document.createElement('div');
+        clueEl.id = `cw-clue-${entry.num}-${entry.dir}`;
+        clueEl.className = "p-2 rounded-xl bg-slate-900 border border-slate-800 cursor-pointer hover:border-cyan-400/50 transition";
+        clueEl.textContent = entry.clue;
+        clueEl.onclick = () => selectCrosswordWord(entry);
+
+        if (entry.dir === 'across') acrossContainer.appendChild(clueEl);
+        else downContainer.appendChild(clueEl);
+      });
+    }
+
+    function selectCrosswordCell(r, c) {
+      const cellData = cwGridMatrix[r][c];
+      if (!cellData || cellData.words.length === 0) return;
+
+      let chosenWord = cellData.words[0];
+      if (selectedCwWord && cellData.words.length > 1 && cellData.words[0] === selectedCwWord) {
+        chosenWord = cellData.words[1];
+      }
+      selectCrosswordWord(chosenWord);
+    }
+
+    function selectCrosswordWord(entry) {
+      selectedCwWord = entry;
+
+      document.querySelectorAll('.crossword-cell.active').forEach(c => c.classList.remove('active'));
+      document.querySelectorAll('#stage-phase-3 .border-amber-400').forEach(c => c.classList.remove('border-amber-400', 'bg-amber-950/40'));
+
+      const clueEl = document.getElementById(`cw-clue-${entry.num}-${entry.dir}`);
+      if (clueEl) {
+        clueEl.classList.add('border-amber-400', 'bg-amber-950/40');
+        clueEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+
+      for (let i = 0; i < entry.word.length; i++) {
+        const r = entry.dir === 'across' ? entry.row : entry.row + i;
+        const c = entry.dir === 'across' ? entry.col + i : entry.col;
+        const cellEl = document.getElementById(`cw-cell-${r}-${c}`);
+        if (cellEl) cellEl.classList.add('active');
+      }
+
+      document.getElementById('cw-active-indicator').textContent = `${entry.num}-${entry.dir.toUpperCase()}:`;
+      const inputEl = document.getElementById('cw-word-input');
+      inputEl.value = '';
+      inputEl.maxLength = entry.word.length;
+      inputEl.placeholder = `${entry.word.length} letters...`;
+      inputEl.focus();
+
+      playTone(450, 0.08, 'sine', 0.2);
+    }
+
+    function handleCrosswordInput(val) {
+      if (!selectedCwWord) return;
+      const cleanVal = val.toUpperCase().trim();
+      const entry = selectedCwWord;
+
+      for (let i = 0; i < entry.word.length; i++) {
+        const r = entry.dir === 'across' ? entry.row : entry.row + i;
+        const c = entry.dir === 'across' ? entry.col + i : entry.col;
+        const cellEl = document.getElementById(`cw-cell-${r}-${c}`);
+        if (!cellEl || cellEl.classList.contains('solved')) continue;
+
+        const letter = cleanVal[i] || '';
+        let numEl = cellEl.querySelector('.crossword-num');
+        cellEl.innerHTML = '';
+        if (numEl) cellEl.appendChild(numEl);
+        if (letter) cellEl.appendChild(document.createTextNode(letter));
+      }
+    }
+
+    function submitCrosswordWord() {
+      if (!selectedCwWord) return;
+      const entry = selectedCwWord;
+      const inputEl = document.getElementById('cw-word-input');
+      const val = inputEl.value.toUpperCase().trim();
+
+      if (val === entry.word) {
+        soundWin();
+        if (!solvedCwWords.includes(entry.word)) {
+          solvedCwWords.push(entry.word);
+          score += 100;
+          phaseScores[3] += 100;
+          updateHeaderHud();
+
+          gameHistory.push({ phase: 3, title: `CW ${entry.num}-${entry.dir}: ${entry.word}`, result: "Solved Word", pts: 100 });
+        }
+
+        for (let i = 0; i < entry.word.length; i++) {
+          const r = entry.dir === 'across' ? entry.row : entry.row + i;
+          const c = entry.dir === 'across' ? entry.col + i : entry.col;
+          const cellEl = document.getElementById(`cw-cell-${r}-${c}`);
+          if (cellEl) {
+            cellEl.classList.add('solved');
+            let numEl = cellEl.querySelector('.crossword-num');
+            cellEl.innerHTML = '';
+            if (numEl) cellEl.appendChild(numEl);
+            cellEl.appendChild(document.createTextNode(entry.word[i]));
+          }
+        }
+
+        const clueEl = document.getElementById(`cw-clue-${entry.num}-${entry.dir}`);
+        if (clueEl) {
+          clueEl.className = "p-2 rounded-xl bg-emerald-950/60 border border-emerald-500/60 text-emerald-300 font-bold opacity-75 line-through";
+        }
+
+        document.getElementById('cw-solved-status').textContent = `Solved: ${solvedCwWords.length} / 10 Words`;
+        document.getElementById('hud-progress').textContent = `${solvedCwWords.length} / 10`;
+        document.getElementById('global-feedback').textContent = `⭐ Correct! "${entry.word}" placed in crossword!`;
+        document.getElementById('global-feedback').className = "mt-2 text-center transition-all duration-300 min-h-[26px] font-bold text-sm text-emerald-400";
+
+        inputEl.value = '';
+        selectedCwWord = null;
+
+        if (solvedCwWords.length === 10) {
+          clearInterval(timerInterval);
+          setTimeout(() => handlePhaseCompletion(3), 1200);
+        }
+
+      } else {
+        soundLose();
+        document.getElementById('global-feedback').textContent = `✖ Incorrect word! Re-check clue #${entry.num} (${entry.word.length} letters).`;
+        document.getElementById('global-feedback').className = "mt-2 text-center transition-all duration-300 min-h-[26px] font-bold text-sm text-rose-400";
+      }
+    }
+
+    function revealCrosswordHint() {
+      if (!selectedCwWord) {
+        document.getElementById('global-feedback').textContent = "Select a word clue first to reveal a letter hint!";
+        return;
+      }
+      const entry = selectedCwWord;
+      const inputEl = document.getElementById('cw-word-input');
+
+      score = Math.max(0, score - 20);
+      phaseScores[3] = Math.max(0, phaseScores[3] - 20);
+      updateHeaderHud();
+
+      inputEl.value = entry.word.slice(0, Math.min(entry.word.length, inputEl.value.length + 1));
+      handleCrosswordInput(inputEl.value);
+      playTone(550, 0.1, 'triangle', 0.2);
+    }
+
+    // ==========================================
+    // 10. TIMER ENGINE
+    // ==========================================
+    function startTimer(duration) {
+      clearInterval(timerInterval);
+      timerMax = duration;
+      timerValue = duration;
+      updateTimerUI();
+
+      timerInterval = setInterval(() => {
+        timerValue--;
+        updateTimerUI();
+
+        if (timerValue <= 5 && timerValue > 0) soundTick();
+
+        if (timerValue <= 0) {
+          clearInterval(timerInterval);
+          handleTimeExpiry();
+        }
+      }, 1000);
+    }
+
+    function updateTimerUI() {
+      document.getElementById('timer-label').textContent = `${timerValue}s`;
+      const pct = Math.max(0, (timerValue / timerMax) * 100);
+      document.getElementById('countdown-bar').style.width = `${pct}%`;
+    }
+
+    function handleTimeExpiry() {
+      if (currentPhase === 1) {
+        handleWinLoseClick(-1);
+      } else if (currentPhase === 2) {
+        loadMagnetPuzzle(magnetIndex + 1);
+      } else if (currentPhase === 3) {
+        handlePhaseCompletion(3);
+      }
+    }
+
+    function updateHeaderHud() {
+      document.getElementById('hud-score').textContent = score;
+      document.getElementById('hud-streak').textContent = `${streak}x`;
+
+      let hearts = '';
+      for (let i = 0; i < 3; i++) hearts += i < strikes ? '❤️' : '🖤';
+      document.getElementById('hud-strikes').textContent = hearts;
+    }
+
+    // ==========================================
+    // 11. COMPLETION & LIVE MQTT BROADCAST
+    // ==========================================
+    function handlePhaseCompletion(phaseNum) {
+      clearInterval(timerInterval);
+      isRoundActive = false;
+
+      const totalRunning = phaseScores[1] + phaseScores[2] + phaseScores[3];
+
+      if (phaseNum < 3) {
+        soundFanfare();
+        document.getElementById('pm-student-name').textContent = candidateName;
+        document.getElementById('pm-student-group').textContent = candidateGroup;
+        document.getElementById('pm-title').textContent = `Phase ${phaseNum} Complete!`;
+        document.getElementById('pm-phase-label').textContent = `Phase ${phaseNum} Score`;
+        document.getElementById('pm-phase-score').textContent = `${phaseScores[phaseNum]} pts`;
+        document.getElementById('pm-total-score').textContent = `${totalRunning} pts`;
+
+        if (phaseNum === 1) {
+          document.getElementById('pm-badge').textContent = 'Phase 1: Win or Lose Quiz Cleared!';
+          document.getElementById('pm-desc').textContent = 
+            `Sensational buzzer reflexes, ${candidateName}! You scored ${phaseScores[1]} points in the 3-strike challenge. Prepare for Phase 2: Word Magnet Sentence Unscramble!`;
+          document.getElementById('btn-advance-phase').textContent = 'ENTER PHASE 2 (WORD MAGNET) ▶';
+        } else if (phaseNum === 2) {
+          document.getElementById('pm-badge').textContent = 'Phase 2: Word Magnet Mastered!';
+          document.getElementById('pm-desc').textContent = 
+            `Outstanding syntax assembly, ${candidateName}! You conquered the scrambled academic sentences. Now step into the final challenge: Phase 3: Academic Crossword Grid!`;
+          document.getElementById('btn-advance-phase').textContent = 'ENTER PHASE 3 (CROSSWORD ARENA) ▶';
+        }
+
+        document.getElementById('phase-modal').classList.remove('hidden');
+      } else {
+        showFinalScorecardAndBroadcast();
+      }
+    }
+
+    function advanceToNextPhase() {
+      document.getElementById('phase-modal').classList.add('hidden');
+      startPhase(currentPhase + 1);
+    }
+
+    function showFinalScorecardAndBroadcast() {
+      soundFanfare();
+      const grandTotal = phaseScores[1] + phaseScores[2] + phaseScores[3];
+      const completedTasks = gameHistory.length;
+      const accuracyRate = `${Math.min(100, Math.round((grandTotal / 2500) * 100))}%`;
+      const submissionTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      // Build payload for MQTT broadcast
+      const submissionPayload = {
+        name: candidateName,
+        group: candidateGroup,
+        room: roomCode,
+        grandTotal: grandTotal,
+        accuracy: accuracyRate,
+        completedTasks: completedTasks,
+        phaseScores: { ...phaseScores },
+        gameHistory: [...gameHistory],
+        timestamp: submissionTimestamp
+      };
+
+      // Broadcast to teacher spectator board
+      publishStudentCompletion(submissionPayload);
+
+      // Render local final modal
+      renderScorecardModal(submissionPayload);
+      document.getElementById('final-modal').classList.remove('hidden');
+    }
+
+    function renderScorecardModal(payload) {
+      document.getElementById('final-name').textContent = payload.name;
+      document.getElementById('final-group').textContent = payload.group;
+      document.getElementById('final-total').textContent = `${payload.grandTotal} pts`;
+      document.getElementById('final-acc').textContent = payload.accuracy;
+      document.getElementById('final-tasks-count').textContent = `${payload.completedTasks} Items Logged`;
+
+      document.getElementById('final-row-p1').innerHTML = `
+        <span>Phase 1: Win or Lose Quiz (10 Qs)</span>
+        <strong class="text-amber-400 font-bold">${payload.phaseScores[1]} pts</strong>
+      `;
+      document.getElementById('final-row-p2').innerHTML = `
+        <span>Phase 2: Word Magnet (5 Scrambles)</span>
+        <strong class="text-cyan-400 font-bold">${payload.phaseScores[2]} pts</strong>
+      `;
+      document.getElementById('final-row-p3').innerHTML = `
+        <span>Phase 3: Crossword Arena (10 Words)</span>
+        <strong class="text-emerald-400 font-bold">${payload.phaseScores[3]} pts</strong>
+      `;
+
+      const log = document.getElementById('final-history-log');
+      log.innerHTML = `<div class="text-[10px] uppercase font-bold text-slate-400 font-hud tracking-wider mb-1">Itemized Performance Record:</div>`;
+
+      payload.gameHistory.forEach(item => {
+        const row = document.createElement('div');
+        row.className = "p-2 rounded-xl border border-slate-800 bg-slate-900/90 text-[11px] flex justify-between items-center";
+        row.innerHTML = `
+          <span>[Phase ${item.phase}] ${item.title}: <strong class="text-slate-200">${item.result}</strong></span>
+          <span class="text-amber-400 font-bold">+${item.pts} pts</span>
+        `;
+        log.appendChild(row);
+      });
+    }
+
+    function closeOrRestartModal() {
+      document.getElementById('final-modal').classList.add('hidden');
+      document.getElementById('start-modal').classList.remove('hidden');
+    }
+
+    // ==========================================
+    // 12. TEACHER LIVE SPECTATOR FUNCTIONS
+    // ==========================================
+    function openTeacherSpectator() {
+      document.getElementById('teacher-spectator-modal').classList.remove('hidden');
+      const r = document.getElementById('reg-room').value.trim().toUpperCase() || "GE3-ARENA";
+      document.getElementById('t-display-room').innerText = r;
+      renderTeacherScreens();
+    }
+
+    function closeTeacherSpectator() {
+      document.getElementById('teacher-spectator-modal').classList.add('hidden');
+    }
+
+    function switchTeacherScreen(screen) {
+      const compBtn = document.getElementById('t-tab-btn-comp');
+      const pendBtn = document.getElementById('t-tab-btn-pend');
+      const compScreen = document.getElementById('t-screen-completed');
+      const pendScreen = document.getElementById('t-screen-pending');
+
+      if (screen === 'completed') {
+        compBtn.className = "px-4 py-2 bg-amber-500 text-slate-950 font-black rounded-xl text-xs font-hud transition";
+        pendBtn.className = "px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs font-hud transition";
+        compScreen.classList.remove('hidden');
+        pendScreen.classList.add('hidden');
+      } else {
+        pendBtn.className = "px-4 py-2 bg-cyan-500 text-slate-950 font-black rounded-xl text-xs font-hud transition";
+        compBtn.className = "px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs font-hud transition";
+        pendScreen.classList.remove('hidden');
+        compScreen.classList.add('hidden');
+      }
+    }
+
+    function renderTeacherScreens() {
+      // Sort completed submissions by grandTotal descending
+      liveSubmissions.sort((a, b) => b.grandTotal - a.grandTotal);
+
+      // 1. Render Completed Screen
+      const compTbody = document.getElementById('t-completed-tbody');
+      document.getElementById('t-comp-count').innerText = liveSubmissions.length;
+      document.getElementById('badge-live-subs').innerText = liveSubmissions.length;
+
+      if (liveSubmissions.length === 0) {
+        compTbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-500 italic">Waiting for students to complete all 3 arena phases...</td></tr>`;
+      } else {
+        compTbody.innerHTML = liveSubmissions.map((s, idx) => `
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-2.5 px-3 font-black font-arcade ${idx === 0 ? 'text-amber-300' : 'text-slate-400'}">#${idx + 1}</td>
+            <td class="py-2.5 px-3 font-bold text-white">${s.name}</td>
+            <td class="py-2.5 px-3 text-cyan-300">${s.group}</td>
+            <td class="py-2.5 px-3 text-center font-black font-hud text-amber-400 text-sm">${s.grandTotal} pts</td>
+            <td class="py-2.5 px-3 text-center font-bold text-emerald-400">${s.accuracy}</td>
+            <td class="py-2.5 px-3 text-slate-400">${s.timestamp}</td>
+            <td class="py-2.5 px-3 text-right">
+              <button onclick="inspectStudentCard('${s.name}')" class="px-2.5 py-1 bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 border border-amber-400/50 rounded-lg text-[11px] font-bold font-hud transition">
+                🔍 Inspect Card
+              </button>
+            </td>
+          </tr>
+        `).join("");
+      }
+
+      // 2. Render Pending Screen (Cross-reference with classRoster)
+      const completedNames = liveSubmissions.map(s => s.name.toUpperCase().trim());
+      const pendingStudents = classRoster.filter(name => !completedNames.includes(name.toUpperCase().trim()));
+
+      document.getElementById('t-pend-count').innerText = pendingStudents.length;
+      const pendTbody = document.getElementById('t-pending-tbody');
+
+      if (pendingStudents.length === 0) {
+        pendTbody.innerHTML = `<tr><td colspan="4" class="py-8 text-center text-emerald-400 font-bold">🎉 Outstanding! All 25 students on the roster have cleared the Arena!</td></tr>`;
+      } else {
+        pendTbody.innerHTML = pendingStudents.map((name, idx) => `
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-2.5 px-3 text-slate-500 font-bold">${idx + 1}</td>
+            <td class="py-2.5 px-3 font-bold text-slate-200">${name}</td>
+            <td class="py-2.5 px-3">
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                ⏳ In Progress / Not Completed
+              </span>
+            </td>
+            <td class="py-2.5 px-3 text-right text-slate-500 text-[11px]">
+              Awaiting Crossword Finish
+            </td>
+          </tr>
+        `).join("");
+      }
+    }
+
+    // Opens the student's exact final scorecard modal on the teacher's screen
+    function inspectStudentCard(studentName) {
+      const record = liveSubmissions.find(s => s.name.toUpperCase() === studentName.toUpperCase());
+      if (!record) return;
+
+      renderScorecardModal(record);
+      document.getElementById('final-modal').classList.remove('hidden');
+    }
+
+    // Export Official Gradebook CSV
+    function exportTeacherRecordCSV() {
+      let csv = "Official Roster Name,Completion Status,Grand Total Score,Accuracy,Phase 1 (Win/Lose),Phase 2 (Word Magnet),Phase 3 (Crossword),Submitted At\n";
+
+      classRoster.forEach(name => {
+        const record = liveSubmissions.find(s => s.name.toUpperCase() === name.toUpperCase());
+        if (record) {
+          csv += `"${name}","COMPLETED",${record.grandTotal},"${record.accuracy}",${record.phaseScores[1]},${record.phaseScores[2]},${record.phaseScores[3]},"${record.timestamp}"\n`;
+        } else {
+          csv += `"${name}","NOT COMPLETED",0,"0%",0,0,0,"N/A"\n`;
+        }
+      });
+
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `EAP_Vocabulary_Arena_Report_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  </script>
+</body>
+</html>
